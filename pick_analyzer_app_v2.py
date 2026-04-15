@@ -147,7 +147,7 @@ def generar_excel(tabla, media_picklists, fecha):
 
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
 
-        # Preparar datos para escribir (columna Pct_vs_Media como texto formateado)
+        # Preparar datos para escribir
         df_export = tabla.copy()
         df_export["vs Media"] = df_export["Pct_vs_Media"].apply(
             lambda x: f"+{x}%" if (x is not None and x >= 0)
@@ -162,10 +162,27 @@ def generar_excel(tabla, media_picklists, fecha):
             "Avg_Duration":    "Duración Media"
         })
 
+        # Escribir hoja principal
         df_export.to_excel(writer, sheet_name="Performance", index=False, startrow=1)
         ws = writer.sheets["Performance"]
 
-        # --- Título
+        # Escribir hoja auxiliar para el gráfico
+        tabla_aa = tabla[tabla["Rol"] == "AA"].copy().reset_index(drop=True)
+        num_aa_chart = len(tabla_aa)
+
+        datos_grafico = pd.DataFrame({
+            "Asociado":  tabla_aa[COLUMNA_ASSOCIATE].values,
+            "Picklists": tabla_aa["Num_Picklists"].astype(int).values,
+            "Media":     [float(media_picklists)] * num_aa_chart
+        })
+        datos_grafico.to_excel(writer, sheet_name="_chart_data", index=False)
+        ws_data = writer.sheets["_chart_data"]
+
+        # -------------------------------------------------------
+        # FORMATO HOJA PRINCIPAL
+        # -------------------------------------------------------
+
+        # Título
         ws["A1"] = f"Pick & Stage — AA's Pace   {fecha}"
         ws["A1"].font      = Font(bold=True, size=13, color="FFFFFF")
         ws["A1"].fill      = PatternFill("solid", fgColor="1F3864")
@@ -173,13 +190,11 @@ def generar_excel(tabla, media_picklists, fecha):
         ws.row_dimensions[1].height = 28
         ws.merge_cells(f"A1:{get_column_letter(len(df_export.columns))}1")
 
-        # --- Cabecera de tabla
+        # Cabecera de tabla
         header_fill   = PatternFill("solid", fgColor="2E75B6")
         header_font   = Font(bold=True, color="FFFFFF", size=10)
-        header_border = Border(
-            bottom=Side(style="medium", color="FFFFFF")
-        )
-        for col_idx, col_name in enumerate(df_export.columns, start=1):
+        header_border = Border(bottom=Side(style="medium", color="FFFFFF"))
+        for col_idx in range(1, len(df_export.columns) + 1):
             cell = ws.cell(row=2, column=col_idx)
             cell.fill      = header_fill
             cell.font      = header_font
@@ -187,10 +202,10 @@ def generar_excel(tabla, media_picklists, fecha):
             cell.border    = header_border
         ws.row_dimensions[2].height = 20
 
-        # --- Colores por rendimiento y rol
-        fill_verde_fuerte = PatternFill("solid", fgColor="70AD47")  # Por encima media
-        fill_verde_suave  = PatternFill("solid", fgColor="C6EFCE")  # En la media +-10%
-        fill_amarillo     = PatternFill("solid", fgColor="FFEB9C")  # Por debajo media
+        # Colores por rendimiento
+        fill_verde_fuerte = PatternFill("solid", fgColor="70AD47")
+        fill_verde_suave  = PatternFill("solid", fgColor="C6EFCE")
+        fill_amarillo     = PatternFill("solid", fgColor="FFEB9C")
         font_gris         = Font(color="AAAAAA", size=10)
         font_normal       = Font(color="000000", size=10)
         font_verde_fuerte = Font(color="375623", bold=True, size=10)
@@ -203,11 +218,10 @@ def generar_excel(tabla, media_picklists, fecha):
         )
 
         for row_idx, row_data in tabla.iterrows():
-            excel_row = row_idx + 3  # +1 título +1 cabecera +1 base índice
-            rol        = row_data["Rol"]
-            pct        = row_data["Pct_vs_Media"]
+            excel_row = row_idx + 3
+            rol = row_data["Rol"]
+            pct = row_data["Pct_vs_Media"]
 
-            # Determinar estilo de fila
             if rol in ["YM", "Manager"]:
                 fila_fill = PatternFill("solid", fgColor="F2F2F2")
                 fila_font = font_gris
@@ -225,36 +239,35 @@ def generar_excel(tabla, media_picklists, fecha):
                 fila_font = font_normal
 
             for col_idx in range(1, len(df_export.columns) + 1):
-                cell            = ws.cell(row=excel_row, column=col_idx)
-                cell.fill       = fila_fill
-                cell.font       = fila_font
-                cell.border     = thin_border
-                cell.alignment  = Alignment(horizontal="center", vertical="center")
-
+                cell           = ws.cell(row=excel_row, column=col_idx)
+                cell.fill      = fila_fill
+                cell.font      = fila_font
+                cell.border    = thin_border
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             ws.row_dimensions[excel_row].height = 18
 
-        # Colorear columna "vs Media" específicamente
+        # Colorear columna vs Media
         col_vs = list(df_export.columns).index("vs Media") + 1
         for row_idx, row_data in tabla.iterrows():
             excel_row = row_idx + 3
-            pct       = row_data["Pct_vs_Media"]
-            cell      = ws.cell(row=excel_row, column=col_vs)
+            pct = row_data["Pct_vs_Media"]
+            cell = ws.cell(row=excel_row, column=col_vs)
             if pct is not None:
                 if pct >= 0:
                     cell.font = Font(color="375623", bold=True, size=10)
                 else:
                     cell.font = Font(color="9C5700", bold=True, size=10)
 
-        # --- Ajustar ancho de columnas
-        for col_idx, col_name in enumerate(df_export.columns, start=1):
+        # Ajustar ancho de columnas
+        for col_idx in range(1, len(df_export.columns) + 1):
             col_letter = get_column_letter(col_idx)
-            max_ancho  = max(
+            max_ancho = max(
                 len(str(ws.cell(row=r, column=col_idx).value or ""))
                 for r in range(1, len(tabla) + 3)
             )
             ws.column_dimensions[col_letter].width = max(max_ancho + 4, 12)
 
-        # --- Leyenda debajo de la tabla
+        # Leyenda
         fila_leyenda = len(tabla) + 4
         ws.cell(row=fila_leyenda,     column=1).value = "Leyenda:"
         ws.cell(row=fila_leyenda,     column=1).font  = Font(bold=True, size=9)
@@ -273,64 +286,88 @@ def generar_excel(tabla, media_picklists, fecha):
         ws.cell(row=fila_leyenda + 5, column=1).value = f"Media AA: {media_picklists} picklists"
         ws.cell(row=fila_leyenda + 5, column=1).font  = Font(bold=True, size=9, color="C55A11")
 
-        # --- Gráfico de barras con línea naranja de media
-        tabla_aa      = tabla[tabla["Rol"] == "AA"].copy()
-        fila_chart    = 2
-        col_chart_ini = len(df_export.columns) + 2
+        # -------------------------------------------------------
+        # GRÁFICO — referencias desde hoja _chart_data
+        # -------------------------------------------------------
+        from openpyxl.chart import LineChart
 
-        # Escribir datos auxiliares para el gráfico (columna oculta)
-        col_aux_login = col_chart_ini
-        col_aux_pick  = col_chart_ini + 1
-        col_aux_media = col_chart_ini + 2
+        # Serie de barras: columna B (Picklists), filas 1 a num_aa_chart+1
+        data_bars = Reference(
+            ws_data,
+            min_col=2, max_col=2,
+            min_row=1, max_row=num_aa_chart + 1
+        )
+        # Categorías: columna A (Asociado), filas 2 a num_aa_chart+1
+        cats = Reference(
+            ws_data,
+            min_col=1, max_col=1,
+            min_row=2, max_row=num_aa_chart + 1
+        )
+        # Serie de línea: columna C (Media), filas 1 a num_aa_chart+1
+        data_line = Reference(
+            ws_data,
+            min_col=3, max_col=3,
+            min_row=1, max_row=num_aa_chart + 1
+        )
 
-        ws.cell(row=fila_chart,     column=col_aux_login).value = "Asociado"
-        ws.cell(row=fila_chart,     column=col_aux_pick).value  = "Picklists"
-        ws.cell(row=fila_chart,     column=col_aux_media).value = "Media"
-
-        for i, (_, row_aa) in enumerate(tabla_aa.iterrows()):
-            r = fila_chart + 1 + i
-            ws.cell(row=r, column=col_aux_login).value = row_aa[COLUMNA_ASSOCIATE]
-            ws.cell(row=r, column=col_aux_pick).value  = int(row_aa["Num_Picklists"])
-            ws.cell(row=r, column=col_aux_media).value = media_picklists
-
-        num_aa_chart = len(tabla_aa)
-
+        # Gráfico de barras
         chart = BarChart()
-        chart.type    = "col"
-        chart.grouping = "clustered"
-        chart.title   = f"Picklists por AA  |  Media: {media_picklists}"
+        chart.type      = "col"
+        chart.grouping  = "clustered"
+        chart.title     = f"Picklists por AA  |  Media: {media_picklists}"
         chart.y_axis.title = "Picklists"
         chart.x_axis.title = "Asociado"
-        chart.width   = 22
-        chart.height  = 13
-        chart.style   = 10
-
-        # Serie de barras (Picklists)
-        data_bars = Reference(ws,
-                              min_col=col_aux_pick,
-                              min_row=fila_chart,
-                              max_row=fila_chart + num_aa_chart)
-        cats = Reference(ws,
-                         min_col=col_aux_login,
-                         min_row=fila_chart + 1,
-                         max_row=fila_chart + num_aa_chart)
+        chart.width     = 26
+        chart.height    = 19        # Más alto para que quepan los nombres abajo
+        chart.style     = 10
         chart.add_data(data_bars, titles_from_data=True)
         chart.set_categories(cats)
-        chart.series[0].graphicalProperties.solidFill    = "2E75B6"
+        chart.series[0].graphicalProperties.solidFill      = "2E75B6"
         chart.series[0].graphicalProperties.line.solidFill = "2E75B6"
 
-        # Serie de línea naranja (Media)
-        from openpyxl.chart import LineChart
-        from openpyxl.chart.series import SeriesLabel
+        # Etiquetas de valor encima de cada barra
+        from openpyxl.chart.label import DataLabelList
+        chart.series[0].dLbls = DataLabelList()
+        chart.series[0].dLbls.showVal   = True
+        chart.series[0].dLbls.showSerName = False
+        chart.series[0].dLbls.showCatName = False
+        chart.series[0].dLbls.showLegendKey = False
 
+        # Rotar etiquetas del eje X para que se lean los nombres
+        chart.x_axis.tickLblPos = "low"
+        from openpyxl.chart.axis import NumericAxis
+        chart.x_axis.txPr = None
+        chart.plot_area.layout = None
+
+        # Aplicar rotación de -45 grados a las etiquetas del eje X
+        from openpyxl.drawing.spreadsheet_drawing import SpreadsheetDrawing
+        from lxml import etree
+        tx_pr = etree.fromstring(
+            '<txPr xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+            '<a:bodyPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" rot="-2700000" vert="horz"/>'
+            '<a:lstStyle xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'
+            '<a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            '<a:pPr>'
+            '<a:defRPr sz="700" b="0">'
+            '<a:solidFill><a:srgbClr val="000000"/></a:solidFill>'
+            '</a:defRPr>'
+            '</a:pPr>'
+            '</a:p>'
+            '</txPr>'
+        )
+        chart.x_axis._txPr = tx_pr
+        chart.x_axis.tickLblPos = "low"
+        chart.x_axis.delete = False
+        chart.x_axis.noMultiLvlLbl = True
+
+
+
+        # Línea naranja de media
         line_chart = LineChart()
-        data_line  = Reference(ws,
-                                min_col=col_aux_media,
-                                min_row=fila_chart,
-                                max_row=fila_chart + num_aa_chart)
         line_chart.add_data(data_line, titles_from_data=True)
+        line_chart.set_categories(cats)
         line_chart.series[0].graphicalProperties.line.solidFill = "FF6600"
-        line_chart.series[0].graphicalProperties.line.width     = 25000
+        line_chart.series[0].graphicalProperties.line.width     = 30000
         line_chart.series[0].smooth = False
 
         chart += line_chart
@@ -338,12 +375,12 @@ def generar_excel(tabla, media_picklists, fecha):
         fila_inicio_chart = fila_leyenda + 7
         ws.add_chart(chart, f"A{fila_inicio_chart}")
 
-        # Ocultar columnas auxiliares del gráfico
-        for c in [col_aux_login, col_aux_pick, col_aux_media]:
-            ws.column_dimensions[get_column_letter(c)].hidden = True
+        # Ocultar hoja auxiliar
+        ws_data.sheet_state = "hidden"
 
     buffer.seek(0)
     return buffer
+
 
 
 # ============================================================
